@@ -5,3 +5,25 @@ body {
     padding: 0;
     overflow: hidden;
 }
+
+#zoom-controls {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    z-index: 1000;
+}
+
+#zoom-controls button {
+    background-color: #2d3748;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    margin-right: 5px;
+    cursor: pointer;
+    font-size: 16px;
+    border-radius: 5px;
+}
+
+#zoom-controls button:hover {
+    background-color: #4a5568;
+}
