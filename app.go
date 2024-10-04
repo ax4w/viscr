@@ -6,14 +6,22 @@ import (
 	"log"
 	"os/exec"
 	"runtime"
-	"sync"
+	"time"
 
 	"github.com/gocolly/colly/v2"
+	wr "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-type App struct {
-	ctx context.Context
-}
+type (
+	App struct {
+		ctx  context.Context
+		g    *Graph
+		pipe chan Pipe
+	}
+	Pipe struct {
+		From, To string
+	}
+)
 
 func NewApp() *App {
 	return &App{}
@@ -21,6 +29,8 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.g = NewGraph()
+	a.pipe = make(chan Pipe, 50)
 }
 
 func (a *App) Open(url string) {
@@ -42,45 +52,87 @@ func (a *App) Open(url string) {
 
 }
 
-func (a *App) Scrape() map[string]map[string]int {
-	var (
-		wg sync.WaitGroup
-	)
+func (a *App) GetCurrentGraph() map[string]map[string]int {
+	tmp := map[string]map[string]int{}
+	a.g.Lock()
+	tmp = a.g.Nodes
+	a.g.Unlock()
+	return tmp
+}
 
-	url := "https://de.wikipedia.org/wiki/Manfred_Bayer_(Physiker)"
-	graph := NewGraph()
+func (a *App) Pipe() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			println("tick,", len(a.pipe))
+			var tmp []Pipe
+
+			// Non-blocking read from the channel
+			for i := 0; i < len(a.pipe); i++ {
+				select {
+				case v := <-a.pipe:
+					println(v.From)
+					tmp = append(tmp, v)
+				default:
+					break
+				}
+			}
+			if len(tmp) > 0 {
+				println("built list")
+				wr.EventsEmit(a.ctx, "update", tmp)
+				println("send event")
+			}
+		}
+	}
+}
+func (a *App) Scrape() {
+	url := "https://ax4w.me"
+	println("start scraping from", url)
 	c := colly.NewCollector(
-		colly.MaxDepth(1),
+		colly.MaxDepth(2),
+		colly.Async(true),
 	)
+	//c.Limit(&colly.LimitRule{DomainGlob: "*", Parallelism: 2})
 	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
-		graph.Lock()
+		a.g.Lock()
 		current := e.Request.URL.String()
-		println("current is", current)
-		link := e.Attr("href")
-		link = e.Request.AbsoluteURL(link)
-		println("href is", link)
-		if graph.Exists(link) {
-			graph.Unlock()
+		link := e.Request.AbsoluteURL(e.Attr("href"))
+		if len(link) == 0 {
+			//println("no link found")
+			a.g.Unlock()
+			return
+		}
+		if a.g.Exists(link) {
+			//println(link, "was visited ")
+			a.g.Unlock()
 		} else {
-			graph.Connect(current, link)
-			graph.Unlock()
+			a.g.Connect(current, link)
+			a.g.Unlock()
+			//println("send", current, "and", link)
+			a.pipe <- Pipe{
+				From: current,
+				To:   link,
+			}
 			e.Request.Visit(link)
 		}
 	})
-	c.OnScraped(func(r *colly.Response) {
-		wg.Done()
-	})
 	c.OnRequest(func(r *colly.Request) {
-		wg.Add(1)
-		println("visiting " + r.URL.String())
+		println("visiting", r.URL.String())
 	})
-	graph.Lock()
-	graph.Add(url)
-	graph.Unlock()
+	// a.g.Lock()
+	// a.g.Add(url)
+	// a.g.Unlock()
+	// a.pipe <- Pipe{
+
+	// }
 	c.Visit(url)
-	wg.Wait()
-	graph.PrintGraph()
-	return graph.Nodes
+	c.Wait()
+	wr.EventsEmit(a.ctx, "done")
 }
 
 // Greet returns a greeting for the given name
