@@ -6,6 +6,7 @@ import (
 	"log"
 	"os/exec"
 	"runtime"
+	"sync"
 	"time"
 
 	"github.com/gocolly/colly/v2"
@@ -15,7 +16,6 @@ import (
 type (
 	App struct {
 		ctx  context.Context
-		g    *Graph
 		pipe chan Pipe
 	}
 	Pipe struct {
@@ -29,7 +29,6 @@ func NewApp() *App {
 
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	a.g = NewGraph()
 	a.pipe = make(chan Pipe, 50)
 }
 
@@ -52,16 +51,8 @@ func (a *App) Open(url string) {
 
 }
 
-func (a *App) GetCurrentGraph() map[string]map[string]int {
-	tmp := map[string]map[string]int{}
-	a.g.Lock()
-	tmp = a.g.Nodes
-	a.g.Unlock()
-	return tmp
-}
-
 func (a *App) Pipe() {
-	ticker := time.NewTicker(1 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
 	for {
@@ -91,29 +82,32 @@ func (a *App) Pipe() {
 	}
 }
 func (a *App) Scrape() {
-	url := "https://ax4w.me"
-	println("start scraping from", url)
+	var mu sync.Mutex
+	m := make(map[string]bool)
+
+	println("start scraping from", *urlf)
 	c := colly.NewCollector(
-		colly.MaxDepth(2),
+		colly.MaxDepth(*depth),
 		colly.Async(true),
 	)
 	//c.Limit(&colly.LimitRule{DomainGlob: "*", Parallelism: 2})
 	c.OnHTML("a[href]", func(e *colly.HTMLElement) {
-		a.g.Lock()
+		println("awaiting lock")
+		mu.Lock()
 		current := e.Request.URL.String()
 		link := e.Request.AbsoluteURL(e.Attr("href"))
 		if len(link) == 0 {
-			//println("no link found")
-			a.g.Unlock()
+			println("no link found")
+			mu.Unlock()
 			return
 		}
-		if a.g.Exists(link) {
-			//println(link, "was visited ")
-			a.g.Unlock()
+		if _, ok := m[link]; ok {
+			println(link, "was visited ")
+			mu.Unlock()
 		} else {
-			a.g.Connect(current, link)
-			a.g.Unlock()
-			//println("send", current, "and", link)
+			m[link] = true
+			mu.Unlock()
+			println("send", current, "and", link)
 			a.pipe <- Pipe{
 				From: current,
 				To:   link,
@@ -124,13 +118,7 @@ func (a *App) Scrape() {
 	c.OnRequest(func(r *colly.Request) {
 		println("visiting", r.URL.String())
 	})
-	// a.g.Lock()
-	// a.g.Add(url)
-	// a.g.Unlock()
-	// a.pipe <- Pipe{
-
-	// }
-	c.Visit(url)
+	c.Visit(*urlf)
 	c.Wait()
 	wr.EventsEmit(a.ctx, "done")
 }

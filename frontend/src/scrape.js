@@ -1,15 +1,14 @@
 import { Graph } from "graphology";
 import Sigma from "sigma";
-import { Scrape, Pipe, GetCurrentGraph, Open } from "../wailsjs/go/main/App";
+import { Scrape, Pipe, Open } from "../wailsjs/go/main/App";
 
 const graph = new Graph();
 const container = document.getElementById("sigma-container");
 let renderer;
+let cameraZoomRatio = 1; // Store the camera's zoom ratio
 const width = container.offsetWidth;
 const height = container.offsetHeight;
 
-Pipe();
-Scrape();
 window.runtime.EventsOn("update", Update);
 
 function Update(data) {
@@ -52,6 +51,8 @@ function Update(data) {
   updateNodeSizes();
   updateLayout();
   if (renderer) {
+    // Persist zoom level before refreshing
+    cameraZoomRatio = renderer.getCamera().getState().ratio;
     renderer.refresh();
     adjustCameraZoom();
   }
@@ -116,12 +117,8 @@ function updateLayout() {
 function adjustCameraZoom() {
   const nodeCount = graph.order;
   const camera = renderer.getCamera();
-  const zoomLevel = Math.max(0.1, 1 / (Math.log(nodeCount + 1) / Math.log(10)));
-
-  camera.animate({
-    ratio: zoomLevel,
-    duration: 1000,
-  });
+  // Apply the stored zoom ratio
+  camera.setState({ ratio: cameraZoomRatio });
 }
 
 function createOrUpdateRenderer() {
@@ -165,13 +162,16 @@ function setupZoomControls(sigmaInstance) {
 
   zoomInBtn.addEventListener("click", () => {
     const camera = sigmaInstance.getCamera();
-    console.log(camera);
     camera.animatedZoom({ duration: 600 });
+    // Store zoom ratio after zooming
+    cameraZoomRatio = camera.getState().ratio;
   });
 
   zoomOutBtn.addEventListener("click", () => {
     const camera = sigmaInstance.getCamera();
     camera.animatedUnzoom({ duration: 600 });
+    // Store zoom ratio after unzooming
+    cameraZoomRatio = camera.getState().ratio;
   });
 
   zoomResetBtn.addEventListener("click", () => {
@@ -196,12 +196,18 @@ window.addEventListener("focus", () => {
 
 window.addEventListener("load", () => {
   onDomReady();
+  Pipe();
+  Scrape();
   setupZoomControls(renderer);
 });
 
 window.refreshGraph = function () {
   if (renderer) {
+    // Store zoom ratio before refreshing
+    cameraZoomRatio = renderer.getCamera().getState().ratio;
     renderer.refresh();
+    // Reapply the stored zoom ratio after refreshing
+    adjustCameraZoom();
     console.log("Graph refreshed");
   }
 };

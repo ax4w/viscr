@@ -2,6 +2,9 @@ package main
 
 import (
 	"embed"
+	"flag"
+	"net/url"
+	"strings"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -10,6 +13,26 @@ import (
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+var (
+	urlf  = flag.String("u", "www.ax4w.me", "the url to start scraping from")
+	depth = flag.Int("d", 2, "the depth of the traversal")
+)
+
+func init() {
+	flag.Parse()
+	if *depth <= 0 {
+		panic("depth must be >= 1")
+	}
+	if !strings.HasPrefix("https://", *urlf) {
+		*urlf = "https://" + *urlf
+	}
+	_, err := url.ParseRequestURI(*urlf)
+	if err != nil {
+		panic(err)
+	}
+
+}
 
 func main() {
 	// Create an instance of the app structure
