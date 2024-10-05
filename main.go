@@ -2,6 +2,7 @@ package main
 
 import (
 	"flag"
+	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 var (
 	targetUrl = flag.String("u", "www.ax4w.me", "url to start scraping from")
 	depth     = flag.Int("d", 5, "scraping depth")
+	port      = flag.Int("p", 3000, "port for the website")
 )
 
 func init() {
@@ -55,5 +57,5 @@ func main() {
 	app.Post("/scrape", internal.Scrape)
 
 	internal.Init(*targetUrl, *depth)
-	log.Fatal(app.Listen(":3000"))
+	log.Fatal(app.Listen(fmt.Sprintf(":%d", *port)))
 }
