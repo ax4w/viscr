@@ -1,58 +1,59 @@
 package main
 
 import (
-	"embed"
 	"flag"
+	"io/fs"
+	"log"
+	"net/http"
 	"net/url"
 	"strings"
+	"viscr/internal"
+	"viscr/ui"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/filesystem"
 )
 
-//go:embed all:frontend/dist
-var assets embed.FS
-
 var (
-	urlf  = flag.String("u", "www.ax4w.me", "the url to start scraping from")
-	depth = flag.Int("d", 2, "the depth of the traversal")
+	targetUrl = flag.String("u", "www.ax4w.me", "url to start scraping from")
+	depth     = flag.Int("d", 5, "scraping depth")
 )
 
 func init() {
 	flag.Parse()
+	if !strings.HasPrefix("http", *targetUrl) {
+		*targetUrl = "https://" + *targetUrl
+	}
+	if _, err := url.ParseRequestURI(*targetUrl); err != nil {
+		log.Fatal(err.Error())
+	}
 	if *depth <= 0 {
-		panic("depth must be >= 1")
+		log.Fatal("depth must be >= 1")
 	}
-	if !strings.HasPrefix("https://", *urlf) {
-		*urlf = "https://" + *urlf
-	}
-	_, err := url.ParseRequestURI(*urlf)
-	if err != nil {
-		panic(err)
-	}
-
 }
 
 func main() {
-	// Create an instance of the app structure
-	app := NewApp()
-	// Create application with options
-	err := wails.Run(&options.App{
-		Title:  "viscr",
-		Width:  1024,
-		Height: 768,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
-		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
-		Bind: []interface{}{
-			app,
-		},
+	app := fiber.New()
+
+	index, err := fs.Sub(ui.Index, "dist")
+	if err != nil {
+		panic(err.Error())
+	}
+
+	app.Use("/", filesystem.New(filesystem.Config{
+		Root:   http.FS(index),
+		Index:  "index.html",
+		Browse: false,
+	}))
+
+	app.Get("/hello", func(c *fiber.Ctx) error {
+		return c.SendString("Hello, World!")
 	})
 
-	if err != nil {
-		println("Error:", err.Error())
-	}
+	app.Get("/peek", internal.Peek)
+
+	app.Post("/scrape", internal.Scrape)
+
+	internal.Init(*targetUrl, *depth)
+	log.Fatal(app.Listen(":3000"))
 }

@@ -1,15 +1,13 @@
 import { Graph } from "graphology";
 import Sigma from "sigma";
-import { Scrape, Pipe, Open } from "../wailsjs/go/main/App";
 
 const graph = new Graph();
 const container = document.getElementById("sigma-container");
 let renderer;
 let cameraZoomRatio = 1; // Store the camera's zoom ratio
 const width = container.offsetWidth;
+let updating = false;
 const height = container.offsetHeight;
-
-window.runtime.EventsOn("update", Update);
 
 function Update(data) {
   if (data.length == 0) {
@@ -143,7 +141,7 @@ function createOrUpdateRenderer() {
     },
   });
   renderer.on("clickNode", (event) => {
-    Open(event.node);
+    window.open(event.node);
   });
 
   adjustCameraZoom();
@@ -196,10 +194,30 @@ window.addEventListener("focus", () => {
 
 window.addEventListener("load", () => {
   onDomReady();
-  Pipe();
-  Scrape();
+  start();
+  let a = setInterval(() => {
+    if (!updating) {
+      updating = true;
+      fetch("/peek").then(async (resp) => {
+        let j = await resp.json();
+        if (j.done) {
+          clearInterval(a)
+          return
+        }
+        Update(j)
+      })
+      updating = false;
+    }
+  }, 1000)
   setupZoomControls(renderer);
 });
+
+
+function start() {
+  fetch("/scrape", {
+    method: "POST",
+  })
+}
 
 window.refreshGraph = function () {
   if (renderer) {
